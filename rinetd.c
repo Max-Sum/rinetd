@@ -96,9 +96,9 @@ struct lkl_netdev_fd {
 
 #define CLEAR_IPTABLES "\
 #/bin/sh \n\
-while [ -n \"$(iptables -L -n --line-number | grep -m 1 LKL_RAW)\" ] \n\
+while [ -n \"$(iptables -t raw -L -n --line-number | grep -m 1 LKL_RAW)\" ] \n\
 do \n\
-iptables -L -n --line-number | grep -m 1 LKL_RAW| cut -d\" \" -f1 | xargs iptables -D INPUT \n\
+iptables -t raw -L -n --line-number | grep -m 1 LKL_RAW| cut -d\" \" -f1 | xargs iptables -t raw -D PREROUTING \n\
 done \n\
 "
 
@@ -145,6 +145,15 @@ static int lkl_call(int nr, int args, ...)
 	va_end(vl);
 
 	return lkl_syscall(nr, params);
+}
+
+void MySystem(char *command){
+    pid_t pid = vfork();
+    if(pid == 0)
+    {
+       execl("/bin/sh", "sh", "-c", command, (char *) 0);
+    }
+    waitpid(pid, NULL, 0);
 }
 
 int parse_mac_str(char *mac_str, __lkl__u8 mac[LKL_ETH_ALEN])
@@ -329,12 +338,14 @@ int main(int argc, char *argv[])
 	openlog("rinetd", LOG_PID, LOG_DAEMON);
 #endif
 
-    system(CLEAR_IPTABLES);
+    MySystem(CLEAR_IPTABLES);
     thpool = thpool_init(2);
 	readArgs(argc - 2, argv, &options);
 
 	if (test_net_init(argv + argc-1-2) < 0)
 		return -1;
+
+	readConfiguration();
 
 #if HAVE_DAEMON && !DEBUG
 	if (!options.foreground && daemon(0, 0) != 0) {
@@ -361,7 +372,6 @@ int main(int argc, char *argv[])
 	signal(SIGINT, quit);
 	signal(SIGTERM, quit);
 
-	readConfiguration();
 	registerPID();
 
 	syslog(LOG_INFO, "Starting redirections...");
@@ -510,14 +520,12 @@ static void readConfiguration(void) {
 			}
             ports->ports[ports->port_num] = bindPort;
             ports->port_num++;
-            //snprintf(iptables_command, sizeof(iptables_command), "%s%s%s%s%s", "iptables -A INPUT -i ", ifname, \
-            //       " -p tcp --dport ", bindPortS, " -j DROP -m comment --comment LKL_RAW");
-            snprintf(iptables_command, sizeof(iptables_command), "%s%s%s", "iptables -I INPUT 1 -i lo -p tcp --dport ", \
+            snprintf(iptables_command, sizeof(iptables_command), "%s%s%s", "iptables -t raw -A PREROUTING -i lo -p tcp --dport ", \
                     bindPortS, " -j ACCEPT -m comment --comment LKL_RAW");
-            system(iptables_command);
-            snprintf(iptables_command, sizeof(iptables_command), "%s%s%s", "iptables -I INPUT 2 -p tcp --dport ", \
+            MySystem(iptables_command);
+            snprintf(iptables_command, sizeof(iptables_command), "%s%s%s", "iptables -t raw -A PREROUTING -p tcp --dport ", \
                     bindPortS, " -j DROP -m comment --comment LKL_RAW");
-            system(iptables_command);
+            MySystem(iptables_command);
 
 			char const *connectAddress = strtok(0, " \t\r\n");
 			if (!connectAddress) {
@@ -1256,7 +1264,7 @@ RETSIGTYPE quit(int s)
 	clearConfiguration();
 
     printf("\nquit\n");
-    system(CLEAR_IPTABLES);
+    MySystem(CLEAR_IPTABLES);
 	exit(0);
 }
 
