@@ -96,10 +96,9 @@ struct lkl_netdev_fd {
 
 #define CLEAR_IPTABLES "\
 #/bin/sh \n\
-while [ -n \"$(iptables -t raw -L -n --line-number | grep -m 1 LKL_RAW)\" ] \n\
-do \n\
-iptables -t raw -L -n --line-number | grep -m 1 LKL_RAW| cut -d\" \" -f1 | xargs iptables -t raw -D PREROUTING \n\
-done \n\
+iptables -t raw -D PREROUTING -p tcp -j RTINETD_LKL \n\
+iptables -t raw -F RTINETD_LKL \n\
+iptables -t raw -X RTINETD_LKL \n\
 "
 
 #	define ioctlsocket ioctl
@@ -520,11 +519,15 @@ static void readConfiguration(void) {
 			}
             ports->ports[ports->port_num] = bindPort;
             ports->port_num++;
-            snprintf(iptables_command, sizeof(iptables_command), "%s%s%s", "iptables -t raw -A PREROUTING -i lo -p tcp --dport ", \
-                    bindPortS, " -j ACCEPT -m comment --comment LKL_RAW");
+            snprintf(iptables_command, sizeof(iptables_command), "iptables -t raw -N RTINET_LKL");
             MySystem(iptables_command);
-            snprintf(iptables_command, sizeof(iptables_command), "%s%s%s", "iptables -t raw -A PREROUTING -p tcp --dport ", \
-                    bindPortS, " -j DROP -m comment --comment LKL_RAW");
+            snprintf(iptables_command, sizeof(iptables_command), "%s%s%s", "iptables -t raw -A RTINET_LKL -i lo -p tcp --dport ", \
+                    bindPortS, " -j ACCEPT");
+            MySystem(iptables_command);
+            snprintf(iptables_command, sizeof(iptables_command), "%s%s%s", "iptables -t raw -A RTINET_LKL -p tcp --dport ", \
+                    bindPortS, " -j DROP");
+            MySystem(iptables_command);
+            snprintf(iptables_command, sizeof(iptables_command), "iptables -t raw -A PREROUTING -p tcp -j RTINET_LKL");
             MySystem(iptables_command);
 
 			char const *connectAddress = strtok(0, " \t\r\n");
